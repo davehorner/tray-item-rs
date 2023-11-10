@@ -168,20 +168,12 @@ fn main() {
                 }
                 Message::TrayRightClicked => {
                     println!("RClick {}", message as u32);
-                    let mut cleanup: Option<std::process::Child> = None;
-                    run_cleanup(&mut cleanup);
-                    if let Some(mut handle) = cleanup {
-                        handle.wait().ok();
-                    }
+                    perform_cleanup(&control_flag, &mut idle_handle);
                     return;
                 }
                 Message::Quit => {
                     println!("Quit");
-                    let mut cleanup: Option<std::process::Child> = None;
-                    run_cleanup(&mut cleanup);
-                    if let Some(mut handle) = cleanup {
-                        handle.wait().ok();
-                    }
+                    perform_cleanup(&control_flag, &mut idle_handle);
                     return;
                 }
                 Message::ToggleState => {
@@ -189,6 +181,20 @@ fn main() {
                 }
             }
         }
+    }
+}
+
+fn perform_cleanup(control_flag: &Arc<AtomicBool>, idle_handle: &mut Option<thread::JoinHandle<()>>) {
+    control_flag.store(true, Ordering::Relaxed);
+
+    // If there's an idle loop, wait for it to finish
+    if let Some(handle) = idle_handle.take() {
+        handle.join().unwrap();
+    }
+    let mut cleanup: Option<std::process::Child> = None;
+    run_cleanup(&mut cleanup);
+    if let Some(mut handle) = cleanup {
+        handle.wait().ok();
     }
 }
 
