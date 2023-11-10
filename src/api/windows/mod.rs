@@ -43,7 +43,7 @@ pub struct TrayItemWindows {
 }
 
 impl TrayItemWindows {
-    pub fn new(title: &str, icon: IconSource) -> Result<Self, TIError> {
+    pub fn new(title: &str, icon: IconSource, tray_leftclick: u32, tray_rightclick: u32) -> Result<Self, TIError> {
         let entries = Arc::new(Mutex::new(Vec::new()));
         let (event_tx, event_rx) = channel::<WindowsTrayEvent>();
 
@@ -67,7 +67,7 @@ impl TrayItemWindows {
 
         let event_tx_clone = event_tx.clone();
         let windows_loop = thread::spawn(move || unsafe {
-            let info = match init_window() {
+            let info = match init_window(tray_leftclick, tray_rightclick) {
                 Ok(info) => {
                     tx.send(Ok(info.clone())).ok();
                     info
@@ -82,7 +82,7 @@ impl TrayItemWindows {
             WININFO_STASH.with(|stash| {
                 let data = WindowsLoopData {
                     info,
-                    tx: event_tx_clone,
+                    tx: event_tx_clone
                 };
 
                 (*stash.borrow_mut()) = Some(data);

@@ -10,6 +10,8 @@ pub(crate) struct WindowInfo {
     pub hwnd: HWND,
     pub hmodule: HMODULE,
     pub hmenu: HMENU,
+    pub tray_leftclick: u32,
+    pub tray_rightclick: u32,
 }
 
 unsafe impl Send for WindowInfo {}

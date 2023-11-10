@@ -26,8 +26,8 @@ impl IconSource {
 }
 
 impl TrayItem {
-    pub fn new(title: &str, icon: IconSource) -> Result<Self, TIError> {
-        Ok(Self(api::TrayItemImpl::new(title, icon)?))
+    pub fn new(title: &str, icon: IconSource, tray_leftclick: u32, tray_rightclick: u32) -> Result<Self, TIError> {
+        Ok(Self(api::TrayItemImpl::new(title, icon, tray_leftclick,tray_rightclick)?))
     }
 
     pub fn set_icon(&mut self, icon: IconSource) -> Result<(), TIError> {

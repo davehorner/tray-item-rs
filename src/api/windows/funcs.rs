@@ -67,15 +67,23 @@ pub(crate) unsafe extern "system" fn window_proc(
             let stash = stash.borrow();
             let stash = stash.as_ref();
             if let Some(stash) = stash {
-                TrackPopupMenu(
-                    stash.info.hmenu,
-                    TPM_LEFTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
-                    point.x,
-                    point.y,
-                    0,
-                    h_wnd,
-                    ptr::null(),
-                );
+                if stash.info.tray_rightclick!=0 && l_param as u32 == WM_RBUTTONUP {
+                    stash.tx.send(WindowsTrayEvent(stash.info.tray_rightclick as u32)).ok();    
+                }
+                if stash.info.tray_leftclick!=0 && l_param as u32 == WM_LBUTTONUP {
+                    stash.tx.send(WindowsTrayEvent(stash.info.tray_leftclick as u32)).ok();    
+                }
+                if stash.info.tray_rightclick==0 && l_param as u32 == WM_RBUTTONUP {
+                    TrackPopupMenu(
+                        stash.info.hmenu,
+                        TPM_LEFTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+                        point.x,
+                        point.y,
+                        0,
+                        h_wnd,
+                        ptr::null(),
+                    );    
+                }
             }
         });
     }
@@ -119,7 +127,7 @@ pub(crate) unsafe extern "system" fn window_proc(
     DefWindowProcW(h_wnd, msg, w_param, l_param)
 }
 
-pub(crate) unsafe fn init_window() -> Result<WindowInfo, TIError> {
+pub(crate) unsafe fn init_window(tray_leftclick: u32, tray_rightclick: u32) -> Result<WindowInfo, TIError> {
     let hmodule = GetModuleHandleW(ptr::null());
     if hmodule == 0 {
         return Err(get_win_os_error("Error getting module handle"));
@@ -193,6 +201,8 @@ pub(crate) unsafe fn init_window() -> Result<WindowInfo, TIError> {
         hwnd,
         hmenu,
         hmodule,
+        tray_leftclick,
+        tray_rightclick,
     })
 }
 
