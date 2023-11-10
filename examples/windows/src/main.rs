@@ -1,15 +1,18 @@
-// #![windows_subsystem = "windows"]
+ //#![windows_subsystem = "windows"]
+ // uncomment to turn off the console for a taskbar only application
 
 use std::ffi::OsStr;
 use std::sync::{mpsc, Arc, Mutex};
 use std::{thread, env};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tray_item::{IconSource, TrayItem};
+
+#[allow(dead_code)]
 enum Message {
     Noise,
     Quit,
-    TrayRightClicked,
-    TrayLeftClicked,
+        TrayRightClicked,
+TrayLeftClicked,
     ToggleState,
 }
 use std::io;
@@ -17,23 +20,22 @@ use winreg::enums::*;
 use winreg::RegKey;
 use std::os::windows::ffi::OsStrExt;
 use winreg::RegValue;
-use std::process::{Command, exit};
+use std::process::Command;
+use dotenv::dotenv;
+use std::collections::HashMap;
 
-fn idle_loop(rx: Arc<Mutex<mpsc::Receiver<Message>>>, control_flag: Arc<AtomicBool>) {
-    let mut enigo = enigo::Enigo::new();
-    const MAX_IDLE_TIME_SECONDS: u64 = 12;
+fn idle_loop(_rx: Arc<Mutex<mpsc::Receiver<Message>>>, control_flag: Arc<AtomicBool>) {
     const CHECK_INTERVAL_SECONDS: u64 = 3;
 
     let mut child_process: Option<std::process::Child> = None;
 
-    println!("idle_loop check");
     while !control_flag.load(Ordering::Relaxed) {
         // Simulate some activity based on your requirements
         // Check for the "ToggleState" message
 
         // If the child process is not running, spawn it
         if child_process.is_none() {
-            let cmd = "your_cmd_script.bat"; // Replace with your actual command script
+            let cmd = "run.bat"; // Replace with your actual command script
             match Command::new(cmd).spawn() {
                 Ok(child) => {
                     let pid = child.id();
@@ -53,6 +55,9 @@ fn idle_loop(rx: Arc<Mutex<mpsc::Receiver<Message>>>, control_flag: Arc<AtomicBo
         std::thread::sleep(std::time::Duration::from_secs(CHECK_INTERVAL_SECONDS));
     }
 
+    let mut cleanup: Option<std::process::Child> = None;
+    run_cleanup(&mut cleanup);
+
     // If the child process is running, kill it
     if let Some(mut child) = child_process.take() {
         let pid = child.id();
@@ -64,37 +69,20 @@ fn idle_loop(rx: Arc<Mutex<mpsc::Receiver<Message>>>, control_flag: Arc<AtomicBo
 
     println!("idle_loop exit");
 }
-// fn idle_loop(rx: Arc<Mutex<mpsc::Receiver<Message>>>, control_flag: Arc<AtomicBool>) {
-//     let mut enigo = enigo::Enigo::new();
-//     const MAX_IDLE_TIME_SECONDS: u64 = 12;
-//     const CHECK_INTERVAL_SECONDS: u64 = 3;
-
-//     println!("idle_loop check");
-//     while !control_flag.load(Ordering::Relaxed) {
-//         // Simulate some activity based on your requirements
-//         // Check for the "ToggleState" message
-
-//         // Simulate some activity based on your requirements
-
-//         // Sleep for the specified interval
-//         println!("idle_loop");
-//         std::thread::sleep(std::time::Duration::from_secs(CHECK_INTERVAL_SECONDS));
-//     }
-//     println!("idle_loop exit");
-// }
 
 fn main() {
-    let mut tray = TrayItem::new("Tray Example", IconSource::Resource("tray-default"), Message::TrayLeftClicked as u32, Message::TrayRightClicked as u32).unwrap();
+    // Load environment variables from .env file
+    dotenv().ok();
+    let mut tray = TrayItem::new("rawwrrr", IconSource::Resource("tray-default"), Message::TrayLeftClicked as u32, Message::TrayRightClicked as u32).unwrap();
 
     let (tx, rx) = mpsc::sync_channel(1);
     let control_rx = Arc::new(Mutex::new(rx));
-    let control_tx = tx.clone();
 
     let control_flag = Arc::new(AtomicBool::new(false));
     let args: Vec<String> = env::args().collect();
 
-    if args.len() == 2 {
-        let enable_autostart = match args[1].as_str() {
+    if args.len() >= 2 {
+        match args[1].as_str() {
             "true" => set_autostart_registry_entry(true),
             "false" => set_autostart_registry_entry(false),
             _ => {
@@ -104,7 +92,40 @@ fn main() {
         };
     }
 
-    tray.add_label("quit");
+    // Read the configuration from environment variables
+    let mut run_cmd_at_start: bool = env::var("RUN_CMD_AT_START")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse()
+        .unwrap_or(false);
+
+    // Use the configuration as needed
+    if args.len() == 3 {
+        // Read the content of the .env file
+        let env_file_path = env::var("CARGO_MANIFEST_DIR")
+        .map(|path| format!("{}/.env", path))
+        .expect("Unable to determine CARGO_MANIFEST_DIR");
+        // Check if the .env file exists, and create it if not
+        if !std::path::Path::new(&env_file_path).exists() {
+            std::fs::write(&env_file_path, "").expect("Error creating .env file");
+        }
+        let file_content = std::fs::read_to_string(&env_file_path).expect("Error reading .env file");
+        let mut env_vars: HashMap<String, String> = parse_env_file(&file_content);
+
+        match args[2].as_str() {
+            "true" => { run_cmd_at_start=true; env_vars.insert("RUN_CMD_AT_START".to_string(), "true".to_string());  },
+            "false" => { run_cmd_at_start=false; env_vars.remove("RUN_CMD_AT_START"); },
+            _ => {
+                println!("Invalid argument. Use 'true' or 'false'.");
+                return;
+            }
+        };
+        // Write the updated environment variables to the .env file
+        std::fs::write(&env_file_path, serialize_env_file(&env_vars))
+        .expect("Error writing to .env file");
+        println!("Run Command at Start: {}", run_cmd_at_start);
+    }
+
+    tray.add_label("quit").ok();
     // let red_tx = tx.clone();
     // tray.add_menu_item("Red", move || {
     //     red_tx.send(Message::ToggleState).unwrap();
@@ -130,37 +151,44 @@ fn main() {
 
     let mut idle_handle: Option<thread::JoinHandle<()>> = None;
     let mut icon_color = String::from("Red"); // Start in the "Red" state
-    let autostart_enabled = read_autostart_registry_entry();
-    if autostart_enabled {
+    // let autostart_enabled = read_autostart_registry_entry();
+    if run_cmd_at_start { //autostart_enabled {
         fun_name(&mut icon_color, &mut tray, &control_flag, &control_rx, &mut idle_handle);
     }
 
     loop {
         while let Ok(message) = control_rx.lock().unwrap().try_recv() {
             match message {
+                Message::Noise => {
+                    println!("Noise {}", message as u32);
+                },
                 Message::TrayLeftClicked => {
                     println!("Click {}", message as u32);
                     fun_name(&mut icon_color, &mut tray, &control_flag, &control_rx, &mut idle_handle);
                 }
                 Message::TrayRightClicked => {
                     println!("RClick {}", message as u32);
+                    let mut cleanup: Option<std::process::Child> = None;
+                    run_cleanup(&mut cleanup);
+                    if let Some(mut handle) = cleanup {
+                        handle.wait().ok();
+                    }
                     return;
                 }
                 Message::Quit => {
                     println!("Quit");
+                    let mut cleanup: Option<std::process::Child> = None;
+                    run_cleanup(&mut cleanup);
+                    if let Some(mut handle) = cleanup {
+                        handle.wait().ok();
+                    }
                     return;
                 }
                 Message::ToggleState => {
                     fun_name(&mut icon_color, &mut tray, &control_flag, &control_rx, &mut idle_handle);
                 }
-                _ => {
-                    println!("wtf");
-                }
             }
         }
-
-        // Continue other tasks in the main loop
-        // ...
     }
 }
 
@@ -192,6 +220,7 @@ fn fun_name(icon_color: &mut String, tray: &mut TrayItem, control_flag: &Arc<Ato
     }
 }
 
+#[allow(dead_code)]
 fn read_autostart_registry_entry() -> bool {
     // Specify the registry key path and value name
     let key_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -240,7 +269,7 @@ fn set_autostart_registry_entry(enable: bool) {
           // Convert u16 elements to u8 before collecting into a Vec<u8>
           let bytes: Vec<u8> = OsStr::new(exe_path.to_str().unwrap())
               .encode_wide()
-              .flat_map(|c| std::array::IntoIter::new([(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8]))
+              .flat_map(|c| [(c & 0xFF) as u8, ((c >> 8) & 0xFF) as u8].into_iter())
               .chain(Some(0))
               .collect();
         // Create a RegValue from the Vec<u8>
@@ -267,3 +296,41 @@ fn set_autostart_registry_entry(enable: bool) {
         }
     }
 }
+
+fn run_cleanup(child_process: &mut Option<std::process::Child>) {
+    let cmd = "cleanup.bat";
+    // Replace with your actual command script
+    match Command::new(cmd).spawn() {
+        Ok(child) => {
+            let pid = child.id();
+            println!("Spawned cleanup process with PID: {}", pid);
+            *child_process = Some(child);
+        }
+        Err(err) => {
+            eprintln!("Failed to spawn cleanup process: {}", err);
+        }
+    }
+}
+
+fn parse_env_file(file_content: &str) -> HashMap<String, String> {
+    file_content
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '=').collect();
+            if parts.len() == 2 {
+                Some((parts[0].trim().to_string(), parts[1].trim().to_string()))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn serialize_env_file(env_vars: &HashMap<String, String>) -> String {
+    env_vars
+        .iter()
+        .map(|(key, value)| format!("{}={}", key, value))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
