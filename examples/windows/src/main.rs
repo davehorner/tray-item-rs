@@ -71,7 +71,18 @@ fn idle_loop(_rx: Arc<Mutex<mpsc::Receiver<Message>>>, control_flag: Arc<AtomicB
 }
 
 fn main() {
-    // Load environment variables from .env file
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            if let Err(err) = env::set_current_dir(exe_dir) {
+                eprintln!("Error changing current directory: {}", err);
+            }
+        } else {
+            eprintln!("Unable to determine executable directory");
+        }
+    } else {
+        eprintln!("Unable to determine executable path");
+    }
+
     dotenv().ok();
     let mut tray = TrayItem::new("rawwrrr", IconSource::Resource("tray-default"), Message::TrayLeftClicked as u32, Message::TrayRightClicked as u32).unwrap();
 
@@ -92,27 +103,22 @@ fn main() {
         };
     }
 
-    // Read the configuration from environment variables
     let mut run_cmd_at_start: bool = env::var("RUN_CMD_AT_START")
         .unwrap_or_else(|_| "false".to_string())
         .parse()
         .unwrap_or(false);
 
-    // Use the configuration as needed
     if args.len() == 3 {
         // Read the content of the .env file
-        let env_file_path = env::var("CARGO_MANIFEST_DIR")
-        .map(|path| format!("{}/.env", path))
-        .expect("Unable to determine CARGO_MANIFEST_DIR");
-        // Check if the .env file exists, and create it if not
-        if !std::path::Path::new(&env_file_path).exists() {
-            std::fs::write(&env_file_path, "").expect("Error creating .env file");
+        let env_file_path =format!(".env");
+        let mut env_vars: HashMap<String, String> = HashMap::<String,String>::new();
+        if std::path::Path::new(&env_file_path).exists() {
+            let file_content = std::fs::read_to_string(&env_file_path).expect("Error reading .env file");
+            env_vars = parse_env_file(&file_content);
         }
-        let file_content = std::fs::read_to_string(&env_file_path).expect("Error reading .env file");
-        let mut env_vars: HashMap<String, String> = parse_env_file(&file_content);
 
         match args[2].as_str() {
-            "true" => { run_cmd_at_start=true; env_vars.insert("RUN_CMD_AT_START".to_string(), "true".to_string());  },
+            "true" =>  { run_cmd_at_start=true; env_vars.insert("RUN_CMD_AT_START".to_string(), "true".to_string());  },
             "false" => { run_cmd_at_start=false; env_vars.remove("RUN_CMD_AT_START"); },
             _ => {
                 println!("Invalid argument. Use 'true' or 'false'.");
@@ -121,7 +127,7 @@ fn main() {
         };
         // Write the updated environment variables to the .env file
         std::fs::write(&env_file_path, serialize_env_file(&env_vars))
-        .expect("Error writing to .env file");
+        .expect("Error writing to .env file");    
         println!("Run Command at Start: {}", run_cmd_at_start);
     }
 
